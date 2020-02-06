@@ -253,7 +253,7 @@ Event.OnDamageDealt
     SmallMessage(eventPlayer, EventDamage());
 }
 
-rule: "Team 1 wins"
+rule: "Win"
 if (AbsoluteValue(line) >= 23)
 {
     define losingTeam;
@@ -283,5 +283,10 @@ if (AbsoluteValue(line) >= 23)
     }
 
     foreach (define player in AllPlayers())
+    {
+        Respawn(player);
+        MinWait();
         RespawnPlayer(player);
+        MinWait();
+    }
 }
