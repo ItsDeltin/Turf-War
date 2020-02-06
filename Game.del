@@ -14,8 +14,10 @@ playervar define timeSinceAlive = 0;
 
 rule: "stuff"
 {
-    CreateHudText(AllPlayers(Team.Team1), line, null, null, Location.Top, 1, Color.SkyBlue, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
-    CreateHudText(AllPlayers(Team.Team2), -line, null, null, Location.Top, 1, Color.SkyBlue, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
+    CreateHudText(FilteredArray(AllPlayers(Team.Team1), line >= 0), line, null, null, Location.Top, 1, Color.Blue, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
+    CreateHudText(FilteredArray(AllPlayers(Team.Team1), line < 0), line, null, null, Location.Top, 1, Color.Red, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
+    CreateHudText(FilteredArray(AllPlayers(Team.Team2), line <= 0), -line, null, null, Location.Top, 1, Color.Blue, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
+    CreateHudText(FilteredArray(AllPlayers(Team.Team2), line > 0), -line, null, null, Location.Top, 1, Color.Red, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
 
     CreateBeamEffect(FilteredArray(AllPlayers(), line == 0), BeamType.GoodBeam, Vector(-30, 0.2, line), Vector(30, 0.2, line), Color.White, EffectRev.VisibleToPositionAndRadius);
     CreateBeamEffect(FilteredArray(AllPlayers(), line > 0), BeamType.GoodBeam, Vector(-30, 0.2, line), Vector(30, 0.2, line), Color.Team1, EffectRev.VisibleToPositionAndRadius);
@@ -25,7 +27,7 @@ rule: "stuff"
 rule: "Player Setup"
 Event.OngoingPlayer
 {
-    CreateHudText(EventPlayer(), IconString(Icon.Circle), "Number of barriers", numberOfBarriers, Location.Top, 2, Color.Blue, Color.SkyBlue, Color.Orange);
+    CreateHudText(EventPlayer(), IconString(Icon.Halo), "Number of barriers", numberOfBarriers, Location.Top, 2, Color.Blue, Color.SkyBlue, Color.Orange);
     DamageMod(0);
     DamageMod(1);
     DamageMod(2);
@@ -41,7 +43,7 @@ method DamageMod(ref define slot)
         eventPlayer,
         IsTrueForAny(Barriers, DoesLineIntersectSphere(
             EyePosition(eventPlayer),
-            FacingDirectionOf(eventPlayer),
+            !IsUsingUltimate() ? FacingDirectionOf(eventPlayer) : DirectionTowards(EyePosition(eventPlayer), EyePosition(PlayersInSlot(slot, OppositeTeamOf(eventPlayerTeam)))),
             (<Barrier>ArrayElement()).Position,
             barrierSize
         )) ? 0 : 100,
@@ -54,8 +56,13 @@ Event.OngoingPlayer
 if (IsAlive())
 if (HasSpawned())
 {
-    Teleport(EventPlayer(), Vector(RandomReal(-20, 20), 0, Max(-20, Min(20, line - (TeamOf(EventPlayer()) == Team.Team1 ? 10 : -10)))))
-    timeSinceAlive = TotalTimeElapsed();
+    RespawnPlayer(eventPlayer);
+}
+
+method RespawnPlayer(define player)
+{
+    Teleport(player, Vector(RandomReal(-19, 20), 0, Max(-19, Min(19, line - (TeamOf(player) == Team.Team1 ? 10 : -10)))))
+    player.timeSinceAlive = TotalTimeElapsed();
 }
 
 rule: "dum"
@@ -64,20 +71,23 @@ if (IsButtonHeld(HostPlayer(), Button.Melee))
     CreateDummyBot(Hero.Mccree, OppositeTeamOf(TeamOf(HostPlayer())), -1, PositionOf(HostPlayer()), FacingDirectionOf(HostPlayer()));
 }
 
-rule: "T1: Move Line"
+rule: "On Kill"
 Event.OnFinalBlow
-Team.Team1
 {
-    line++;
     numberOfBarriers++;
 }
 
-rule: "T2: Move Line"
-Event.OnFinalBlow
-Team.Team2
+rule: "T1: Death"
+Event.OnDeath
+Team.Team1
 {
     line--;
-    numberOfBarriers++;
+}
+rule: "T2: Death"
+Event.OnDeath
+Team.Team2
+{
+    line++;
 }
 
 rule: "Did Do Damage"
@@ -189,6 +199,27 @@ class Barrier
         CreateEffect(AllPlayers(), Effect.Sphere, Color.Green, Position, root.barrierSize*(1/6)*health, EffectRev.VisibleTo);
         healthEffect = LastCreatedEntity();
     }
+
+    public method Destroy()
+    {
+        DestroyEffect(effectID);
+        DestroyEffect(healthEffect);
+        ModifyVariable(root.Barriers, Operation.RemoveFromArrayByValue, this);
+    }
+}
+
+macro touchingBarrier(Barrier barrier, define player): DistanceBetween(barrier.Position, PositionOf(player)) < root.barrierSize;
+macro touchingAnyBarrier(define player): IsTrueForAny(Barriers, touchingBarrier(<Barrier>ArrayElement(), player));
+macro firstTouchingBarrier(define player): FilteredArray(Barriers, touchingBarrier(<Barrier>ArrayElement(), player))[0];
+
+rule: "Touching barrier"
+Event.OngoingPlayer
+if (touchingAnyBarrier(eventPlayer))
+{
+    Barrier touching = firstTouchingBarrier(eventPlayer);
+    ApplyImpulse(eventPlayer, DirectionTowards(touching.Position * Vector(1, 0, 1), PositionOf() * Vector(1, 0, 1)) + Vector(0, 1, 0), 1, Relative.ToWorld, ContraryMotion.Incorporate);
+    MinWait();
+    LoopIfConditionIsTrue();
 }
 
 globalvar Empty empty = new Empty();
@@ -220,4 +251,37 @@ disabled rule: "Damage counter"
 Event.OnDamageDealt
 {
     SmallMessage(eventPlayer, EventDamage());
+}
+
+rule: "Team 1 wins"
+if (AbsoluteValue(line) >= 23)
+{
+    define losingTeam;
+    define winningTeam;
+
+    if (line > 0)
+    {
+        winningTeam = Team.Team1;
+        losingTeam = Team.Team2;
+    }
+    else
+    {
+        winningTeam = Team.Team2;
+        losingTeam = Team.Team1;
+    }
+
+    BigMessage(AllPlayers(winningTeam), "You win!");
+    BigMessage(AllPlayers(losingTeam), "You lose!");
+
+    line = 0;
+    AllPlayers().numberOfBarriers = 0;
+
+    while (CountOf(Barriers) > 0)
+    {
+        Barriers[0].Destroy();
+        MinWait();
+    }
+
+    foreach (define player in AllPlayers())
+        RespawnPlayer(player);
 }
