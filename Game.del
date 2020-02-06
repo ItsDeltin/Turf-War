@@ -1,40 +1,223 @@
-//import "!Debug Tools.del";
-import "!Debug Camera.del";
-
 macro eventPlayer : EventPlayer();
-globalvar Laser[] Lasers;
+macro eventPlayerTeam : TeamOf(EventPlayer());
+macro hostPlayer : HostPlayer();
+macro attacker : Attacker();
+macro victim : Victim();
 
-rule: "Lasers"
-Event.OngoingPlayer
-if (IsButtonHeld(HostPlayer(), Button.Interact))
+globalvar define line = 0;
+globalvar Barrier[] Barriers = [];
+public macro barrierSize: 2.2;
+
+playervar define numberOfBarriers = 0;
+playervar define didDoDamage = false;
+playervar define timeSinceAlive = 0;
+
+rule: "stuff"
 {
-    ModifyVariable(Lasers, Operation.AppendToArray, new Laser(EyePosition(), FacingDirectionOf()));
+    CreateHudText(AllPlayers(Team.Team1), line, null, null, Location.Top, 1, Color.SkyBlue, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
+    CreateHudText(AllPlayers(Team.Team2), -line, null, null, Location.Top, 1, Color.SkyBlue, Color.White, Color.White, StringRev.VisibleToAndString, Spectators.DefaultVisibility);
 
-    for (define i = 1; Max(CountOf(Lasers), 4); 1)
+    CreateBeamEffect(FilteredArray(AllPlayers(), line == 0), BeamType.GoodBeam, Vector(-30, 0.2, line), Vector(30, 0.2, line), Color.White, EffectRev.VisibleToPositionAndRadius);
+    CreateBeamEffect(FilteredArray(AllPlayers(), line > 0), BeamType.GoodBeam, Vector(-30, 0.2, line), Vector(30, 0.2, line), Color.Team1, EffectRev.VisibleToPositionAndRadius);
+    CreateBeamEffect(FilteredArray(AllPlayers(), line < 0), BeamType.GoodBeam, Vector(-30, 0.2, line), Vector(30, 0.2, line), Color.Team2, EffectRev.VisibleToPositionAndRadius);
+}
+
+rule: "Player Setup"
+Event.OngoingPlayer
+{
+    CreateHudText(EventPlayer(), IconString(Icon.Circle), "Number of barriers", numberOfBarriers, Location.Top, 2, Color.Blue, Color.SkyBlue, Color.Orange);
+    DamageMod(0);
+    DamageMod(1);
+    DamageMod(2);
+    DamageMod(3);
+    DamageMod(4);
+    DamageMod(5);
+}
+
+method DamageMod(ref define slot)
+{
+    StartDamageModification(
+        PlayersInSlot(slot, OppositeTeamOf(eventPlayerTeam)),
+        eventPlayer,
+        IsTrueForAny(Barriers, DoesLineIntersectSphere(
+            EyePosition(eventPlayer),
+            FacingDirectionOf(eventPlayer),
+            (<Barrier>ArrayElement()).Position,
+            barrierSize
+        )) ? 0 : 100,
+        DamageModificationRev.ReceiversDamagersAndDamagePercent
+    );
+}
+
+rule: "Player Setup Alive"
+Event.OngoingPlayer
+if (IsAlive())
+if (HasSpawned())
+{
+    Teleport(EventPlayer(), Vector(RandomReal(-20, 20), 0, Max(-20, Min(20, line - (TeamOf(EventPlayer()) == Team.Team1 ? 10 : -10)))))
+    timeSinceAlive = TotalTimeElapsed();
+}
+
+rule: "dum"
+if (IsButtonHeld(HostPlayer(), Button.Melee))
+{
+    CreateDummyBot(Hero.Mccree, OppositeTeamOf(TeamOf(HostPlayer())), -1, PositionOf(HostPlayer()), FacingDirectionOf(HostPlayer()));
+}
+
+rule: "T1: Move Line"
+Event.OnFinalBlow
+Team.Team1
+{
+    line++;
+    numberOfBarriers++;
+}
+
+rule: "T2: Move Line"
+Event.OnFinalBlow
+Team.Team2
+{
+    line--;
+    numberOfBarriers++;
+}
+
+rule: "Did Do Damage"
+Event.OnDamageDealt
+{
+    didDoDamage = true;
+}
+
+rule: "Shoot"
+Event.OngoingPlayer
+if (IsFiringPrimary() || didDoDamage)
+{
+    if (didDoDamage)
     {
-        //BallDirection = BallDirection - ((2 * DotProduct(BallDirection, BallMoveToNormal)) * BallMoveToNormal);
-        define direction = Lasers[i - 1].Direction - ((2 * DotProduct(Lasers[i - 1].Direction, Lasers[i - 1].EndNormal)) * Lasers[i - 1].EndNormal);
+        didDoDamage = false;
+        Abort();
+    }
 
-        Lasers[i] = new Laser(Lasers[i - 1].End, direction);
+    define hitPos = RayCastHitPosition(
+        EyePosition(),
+        Destination(EyePosition(), FacingDirectionOf(), 300),
+        AllPlayers(OppositeTeamOf(TeamOf())),
+        null,
+        false
+    );
+
+    Barrier intersect = FilteredArray(
+        SortedArray(
+            Barriers,
+            DistanceBetween(PositionOf(), (<Barrier>ArrayElement()).Position)
+        ),
+        (DistanceBetween(PositionOf(), (<Barrier>ArrayElement()).Position) < DistanceBetween(PositionOf(), hitPos)) &&
+        DoesLineIntersectSphere(
+            EyePosition(),
+            FacingDirectionOf(),
+            (<Barrier>ArrayElement()).Position,
+            barrierSize
+        )
+    )[0];
+
+    if (intersect != null)
+        intersect.Damage(eventPlayer);
+}
+
+rule: "Stun heal"
+Event.OnDamageDealt
+if (EventDamage() == 25)
+{
+    Heal(eventPlayer, null, 100);
+}
+
+rule: "Create barrier"
+Event.OngoingPlayer
+if (IsButtonHeld(EventPlayer(), Button.Interact))
+if (numberOfBarriers > 0)
+{
+    numberOfBarriers--;
+    ModifyVariable(Barriers, Operation.AppendToArray, new Barrier(EyePosition() + FacingDirectionOf() * 3, TeamOf() == Team.Team1));
+}
+
+class Barrier
+{
+    public define Position;
+    public define BarrierTeam;
+    public define health = 6;
+    public define effectID;
+    public define healthEffect;
+
+    public Batter(ref define pos, ref define team)
+    {
+        Position = pos;
+        BarrierTeam = team;
+
+        if (BarrierTeam)
+            CreateEffect(AllPlayers(), Effect.Sphere, Color.Team1, Position, root.barrierSize, EffectRev.VisibleTo);
+        else
+            CreateEffect(AllPlayers(), Effect.Sphere, Color.Team2, Position, root.barrierSize, EffectRev.VisibleTo);
+        effectID = LastCreatedEntity();
+        HealthEffect();
+    }
+
+    public method Damage(ref define damager)
+    {
+        if ((TeamOf(damager) == Team.Team1) == BarrierTeam) return;
+        health--;
+
+        if (health == 0)
+        {
+            DestroyEffect(effectID);
+            DestroyEffect(healthEffect);
+            if (BarrierTeam)
+                PlayEffect(AllPlayers(), PlayEffect.RingExplosion, Color.Team1, Position, 5);
+            else
+                PlayEffect(AllPlayers(), PlayEffect.RingExplosion, Color.Team2, Position, 5);
+            PlayEffect(AllPlayers(), PlayEffect.RingExplosionSound, Color.Team2, Position, 100);
+
+            ModifyVariable(root.Barriers, Operation.RemoveFromArrayByValue, this);
+        }
+        else
+        {
+            PlayEffect(AllPlayers(), PlayEffect.ExplosionSound, Color.Team2, Position, 100);
+            HealthEffect();
+        }
+    }
+
+    public method HealthEffect()
+    {
+        DestroyEffect(healthEffect);
+        CreateEffect(AllPlayers(), Effect.Sphere, Color.Green, Position, root.barrierSize*(1/6)*health, EffectRev.VisibleTo);
+        healthEffect = LastCreatedEntity();
     }
 }
 
-class Laser
+globalvar Empty empty = new Empty();
+class Empty {}
+
+rule: "Wrong side"
+Event.OngoingPlayer
+Team.Team1
+if (ZOf(PositionOf(EventPlayer())) > line)
+if (TotalTimeElapsed() - timeSinceAlive > 2)
 {
-    public define NeedsUpdate = true;
-    public define Start;
-    public define Direction;
-    public define End;
-    public define EndNormal;
+    ApplyImpulse(EventPlayer(), Vector(0, 1, -1), 10, Relative.ToWorld, ContraryMotion.Cancel);
+    MinWait();
+    LoopIfConditionIsTrue();
+}
 
-    public Laser(ref define start, ref define direction)
-    {
-        Start = start;
-        Direction = direction;
+rule: "Wrong side"
+Event.OngoingPlayer
+Team.Team2
+if (ZOf(PositionOf(EventPlayer())) < line)
+if (TotalTimeElapsed() - timeSinceAlive > 0.3)
+{
+    ApplyImpulse(EventPlayer(), Vector(0, 1, 1), 10, Relative.ToWorld, ContraryMotion.Cancel);
+    MinWait();
+    LoopIfConditionIsTrue();
+}
 
-        End = RayCastHitPosition(Start, Destination(Start, Direction, 1000), null, null, false);
-        EndNormal = RayCastHitNormal(Start, Destination(Start, Direction, 1000), null, null, false);
-
-        CreateBeamEffect(AllPlayers(), BeamType.GoodBeam, Start, End, Color.Red, EffectRev.VisibleTo);
-    }
+disabled rule: "Damage counter"
+Event.OnDamageDealt
+{
+    SmallMessage(eventPlayer, EventDamage());
 }
