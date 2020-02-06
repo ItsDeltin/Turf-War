@@ -136,7 +136,7 @@ rule: "Stun heal"
 Event.OnDamageDealt
 if (EventDamage() == 25)
 {
-    Heal(eventPlayer, null, 100);
+    Heal(eventPlayer, eventPlayer, 75);
 }
 
 rule: "Create barrier"
