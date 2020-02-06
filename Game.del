@@ -1,0 +1,40 @@
+//import "!Debug Tools.del";
+import "!Debug Camera.del";
+
+macro eventPlayer : EventPlayer();
+globalvar Laser[] Lasers;
+
+rule: "Lasers"
+Event.OngoingPlayer
+if (IsButtonHeld(HostPlayer(), Button.Interact))
+{
+    ModifyVariable(Lasers, Operation.AppendToArray, new Laser(EyePosition(), FacingDirectionOf()));
+
+    for (define i = 1; Max(CountOf(Lasers), 4); 1)
+    {
+        //BallDirection = BallDirection - ((2 * DotProduct(BallDirection, BallMoveToNormal)) * BallMoveToNormal);
+        define direction = Lasers[i - 1].Direction - ((2 * DotProduct(Lasers[i - 1].Direction, Lasers[i - 1].EndNormal)) * Lasers[i - 1].EndNormal);
+
+        Lasers[i] = new Laser(Lasers[i - 1].End, direction);
+    }
+}
+
+class Laser
+{
+    public define NeedsUpdate = true;
+    public define Start;
+    public define Direction;
+    public define End;
+    public define EndNormal;
+
+    public Laser(ref define start, ref define direction)
+    {
+        Start = start;
+        Direction = direction;
+
+        End = RayCastHitPosition(Start, Destination(Start, Direction, 1000), null, null, false);
+        EndNormal = RayCastHitNormal(Start, Destination(Start, Direction, 1000), null, null, false);
+
+        CreateBeamEffect(AllPlayers(), BeamType.GoodBeam, Start, End, Color.Red, EffectRev.VisibleTo);
+    }
+}
