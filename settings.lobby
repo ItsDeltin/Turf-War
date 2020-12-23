@@ -1,0 +1,27 @@
+{
+    "Modes": {
+        "Team Deathmatch": {
+            "Enabled": true,
+            "Allow Hero Switching": false,
+            "Enabled Maps": ["Workshop Island", "Workshop Island (Night)"],
+            "Respawn Time Scalar": 50,
+            "Hero Limit": "Off",
+            "Limit Roles": "Off",
+            "Kill Cam": false,
+            "Self Initiated Respawn": true,
+            "Mercy Resurrect Counteracts Kills": false,
+            "Respawn As Random Hero": true,
+            "Game Length In Minutes": 10,
+            "Team 1 Score To Win": 20,
+            "Team 2 Score To Win": 20
+        }
+    },
+    "Lobby": {
+        "Match Voice Chat": true
+    },
+    "Heroes": {
+        "General": {
+            "Enabled Heroes": ["Mccree"]
+        }
+    }
+}
