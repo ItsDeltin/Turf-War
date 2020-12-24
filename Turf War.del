@@ -6,6 +6,7 @@ globalvar Barrier[] barriers = [];
 playervar define numberOfBarriers = 0;
 playervar define timeSinceAlive;
 playervar Barrier lookingAtBarrier;
+playervar define barrierColorLerp;
 
 define eventPlayer: EventPlayer();
 define victim: Victim();
@@ -14,10 +15,14 @@ globalvar define scoreToWin = WorkshopSettingInteger('Game', 'Score To Win', 15,
 globalvar define timeUntilSuddenDeath = WorkshopSettingInteger('Sudden Death', 'Time until sudden death', 300, 0, 900, 0);
 globalvar define suddenDeathType = WorkshopSettingCombo('Sudden Death', 'Sudden death type', 0, ['Score multiplier', 'Deathmatch'], 1);
 globalvar define suddenDeathScoreMultiplier = WorkshopSettingInteger('Sudden Death', 'Overtime score multiplier', 3, 2, 10, 2);
+globalvar define respawnTime = WorkshopSettingInteger('Player', 'Respawn time', 4, 0, 10, 0);
+globalvar define primaryBarrierDamage = WorkshopSettingInteger('Player', 'Primary fire barrier damage', 10, 0, 60, 1);
 globalvar define inSuddenDeath = false;
 define timerText: <'<0>:<1>', RoundToInteger(timer / 60, Rounding.Down), timer % 60 < 10 ? <'0<0>', RoundToInteger(timer % 60, Rounding.Down)> : RoundToInteger(timer % 60, Rounding.Down)>;
 define colorFlash: SineFromRadians(TotalTimeElapsed() * 1.4) * 255;
 define killPoints: inSuddenDeath && suddenDeathType == 0 ? suddenDeathScoreMultiplier : 1;
+Color barrierColor: CustomColor(barrierColorFlash(19), barrierColorFlash(191), barrierColorFlash(174), 255);
+define barrierColorFlash(define value): value + ((255-value) * barrierColorLerp);
 
 rule: 'Init'
 {
@@ -33,7 +38,7 @@ rule: 'Init'
 
     CreateHudText(AllPlayers(), Text: "Press interact to create a barrier.", Location: Location.Left, SortOrder: 0, TextColor: Color.Orange);
     CreateHudText(AllPlayers(), Text: "Each kill moves the line towards the enemy side. Push them to the cliff to win.", Location: Location.Left, SortOrder: 1, TextColor: Color.Blue);
-    CreateHudText(HostPlayer(), Text: <"CAP <0>/<1>/<2>", ServerLoad(), ServerLoadAverage(), ServerLoadPeak()>, Location: Location.Top, SortOrder: 3, TextColor: Color.Green);
+    CreateHudText(HostPlayer(), Text: <"CAP <0>/<1>/<2>", ServerLoad(), ServerLoadAverage(), ServerLoadPeak()>, Location: Location.Top, SortOrder: -1, TextColor: Color.Green);
 
     // Timer
     CreateHudText(
@@ -49,7 +54,7 @@ rule: 'Init'
     CreateProgressBarHudText(
         AllPlayers(Team.Team1),
         100 * (0.5 + ((scoreDelta / scoreToWin) / 2)),
-        Max(0, scoreToWin - scoreDelta),
+        <'<0> remaining', Max(0, scoreToWin - scoreDelta)>,
         Location.Top,
         1,
         scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2,
@@ -60,7 +65,7 @@ rule: 'Init'
     CreateProgressBarHudText(
         AllPlayers(Team.Team2),
         100 * (0.5 + ((-scoreDelta / scoreToWin) / 2)),
-        Max(0, scoreToWin + scoreDelta),
+        <'<0> remaining', Max(0, scoreToWin + scoreDelta)>,
         Location.Top,
         1,
         scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2,
@@ -84,7 +89,8 @@ Event.OngoingPlayer
 {
     DisableGameModeHud(eventPlayer);
     DisableRespawning(eventPlayer);
-    CreateHudText(eventPlayer, IconString(Icon.Halo), "Number of barriers", numberOfBarriers, Location.Top, 2, Color.Blue, Color.SkyBlue, Color.Orange);
+    CreateHudText(eventPlayer, Text: 'Number of barriers', TextColor: barrierColor, Location: Location.Top, SortOrder: 3, Reevaluation: HudTextRev.VisibleToStringAndColor);
+    CreateHudText(eventPlayer, Text: numberOfBarriers, TextColor: barrierColor, Location: Location.Top, SortOrder: 4, Reevaluation: HudTextRev.VisibleToStringAndColor);
 
     StartDamageModification(
         FilteredArray(AllPlayers(OppositeTeamOf(TeamOf())), IsUsingUltimate() || (lookingAtBarrier != null && lookingAtBarrier.IsBlockedByBarrier(eventPlayer, ArrayElement()))),
@@ -108,19 +114,18 @@ Event.OngoingPlayer
 if (IsFiringPrimary())
 if (lookingAtBarrier != null)
 {
-    lookingAtBarrier.Damage(10, eventPlayer);
+    lookingAtBarrier.Damage(primaryBarrierDamage, eventPlayer);
 }
 
 rule: "Player: Damage barrier secondary fire"
 Event.OngoingPlayer
 if (IsFiringSecondary())
 if (lookingAtBarrier != null)
+if (Ammo(eventPlayer, 0) > 0)
 {
-    while (Ammo(eventPlayer, 0) > 0 && lookingAtBarrier != null)
-    {
-        lookingAtBarrier.Damage(Min(15, Max(5, 25 - EyePosition().DistanceTo(lookingAtBarrier.Position) * 2)), eventPlayer);
-        Wait(0.11);
-    }
+    lookingAtBarrier.Damage(Min(15, Max(5, 25 - EyePosition().DistanceTo(lookingAtBarrier.Position) * 2)), eventPlayer);
+    Wait(0.11);
+    LoopIfConditionIsTrue();
 }
 
 rule: "Player: ultimate"
@@ -143,6 +148,10 @@ rule: "Player: On Kill"
 Event.OnFinalBlow
 {
     numberOfBarriers++;
+    barrierColorLerp = 1;
+    StopChasingVariable(barrierColorLerp);
+    Wait(0.1);
+    ChaseVariableOverTime(barrierColorLerp, 0, 0.4, TimeChaseReevaluation.None);
 }
 
 rule: "Game: Team 1 death"
@@ -258,7 +267,7 @@ Event.OngoingPlayer
 if (IsDead())
 if (!inSuddenDeath || suddenDeathType != 1)
 {
-    Wait(2, WaitBehavior.AbortWhenFalse);
+    Wait(respawnTime, WaitBehavior.AbortWhenFalse);
     Respawn(eventPlayer);
 }
 
