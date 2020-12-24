@@ -1,0 +1,52 @@
+import 'Turf War.del';
+
+playervar define isPresident = null;
+
+rule: 'President: join'
+Event.OngoingPlayer
+if (gametype == 1)
+{
+    SmallMessage(IsTrueForAny(AllPlayers(TeamOf()), ArrayElement().isPresident));
+}
+
+rule: 'President: join'
+Event.OngoingPlayer
+if (gametype == 1)
+if (!IsTrueForAny(AllPlayers(TeamOf()), ArrayElement().isPresident))
+{
+    SmallMessage();
+    isPresident = true;
+}
+
+rule: 'President: leave'
+Event.OnPlayerLeave
+if (isPresident)
+{
+    RandomValueInArray(AllPlayers(TeamOf())).isPresident = true;
+}
+
+rule: 'President: death'
+Event.OnDeath
+if (gametype == 1)
+if (isPresident)
+{
+    Win(OppositeTeamOf(TeamOf()));
+}
+
+rule: 'President: set hero to Ashe'
+Event.OngoingPlayer
+if (gametype == 1)
+if (isPresident)
+if (HasSpawned())
+{
+    ForcePlayerHero(eventPlayer, Hero.Ashe);
+}
+
+rule: 'President: set hero to McCree'
+Event.OngoingPlayer
+if (!isPresident)
+if (gametype == 1)
+if (HasSpawned())
+{
+    ForcePlayerHero(eventPlayer, Hero.Mccree);
+}

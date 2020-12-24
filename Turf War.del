@@ -1,4 +1,5 @@
 import 'settings.lobby';
+import 'President.del';
 
 globalvar define timer;
 globalvar define scoreDelta = 0;
@@ -10,8 +11,11 @@ playervar define barrierColorLerp;
 
 define eventPlayer: EventPlayer();
 define victim: Victim();
+define attacker: Attacker();
 globalvar define arenaPosition = 0;
 globalvar define scoreToWin = WorkshopSettingInteger('Game', 'Score To Win', 15, 3, 30, 0);
+globalvar define gametype = WorkshopSettingCombo('Game', 'Game type', 0, ['Classic', 'Protect the president'], 1);
+globalvar define ptpBarrierStartCount = WorkshopSettingInteger('Game', 'Protect the president; Barrier start count', 4, 0, 6, 2);
 globalvar define timeUntilSuddenDeath = WorkshopSettingInteger('Sudden Death', 'Time until sudden death', 300, 0, 900, 0);
 globalvar define suddenDeathType = WorkshopSettingCombo('Sudden Death', 'Sudden death type', 0, ['Score multiplier', 'Deathmatch'], 1);
 globalvar define suddenDeathScoreMultiplier = WorkshopSettingInteger('Sudden Death', 'Overtime score multiplier', 3, 2, 10, 2);
@@ -74,7 +78,7 @@ rule: 'Init'
         Spectators.VisibleNever
     );
 
-    DeathmatchTimer();
+    InitializeGame();
 }
 
 rule: "Debug: Create dummy bot"
@@ -119,6 +123,7 @@ if (lookingAtBarrier != null)
 
 rule: "Player: Damage barrier secondary fire"
 Event.OngoingPlayer
+Player.Mccree
 if (IsFiringSecondary())
 if (lookingAtBarrier != null)
 if (Ammo(eventPlayer, 0) > 0)
@@ -130,6 +135,7 @@ if (Ammo(eventPlayer, 0) > 0)
 
 rule: "Player: ultimate"
 Event.OnDamageDealt
+Player.Mccree
 if (IsUsingUltimate())
 {
     Barrier barrier = barriers
@@ -147,6 +153,7 @@ if (IsUsingUltimate())
 rule: "Player: On Kill"
 Event.OnFinalBlow
 {
+    heroUpgradeCurrent++;
     numberOfBarriers++;
     barrierColorLerp = 1;
     StopChasingVariable(barrierColorLerp);
@@ -216,7 +223,6 @@ void Win(Team winner) 'Game: reset'
     Wait(5);
 
     // Reset the game.
-    DeathmatchTimer();
     scoreDelta = 0;
     arenaPosition = 0;
     SetTeamScore(Team.Team1, 0);
@@ -232,11 +238,20 @@ void Win(Team winner) 'Game: reset'
         RespawnPlayer(player);
         Respawn(player);
     }
+    InitializeGame();
 }
 
-void DeathmatchTimer() globalvar 'Sudden death: timer'
+void InitializeGame() globalvar 'Sudden death: timer'
 {
     timer = timeUntilSuddenDeath;
+    
+    AllPlayers().isPresident = false;
+    if (gametype == 1)
+    {
+        AllPlayers().numberOfBarriers = ptpBarrierStartCount;
+        RandomValueInArray(AllPlayers(Team.Team1)).isPresident = true;
+        RandomValueInArray(AllPlayers(Team.Team2)).isPresident = true;
+    }
 }
 
 rule: 'Sudden death: begin'
