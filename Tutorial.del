@@ -1,0 +1,103 @@
+import 'Turf War.del';
+
+define tutorialVisible: FilteredArray(AllPlayers(), !ArrayElement().tutorialTextClosed);
+playervar define tutorialTextClosed;
+
+rule: 'Tutorial: Close'
+Event.OngoingPlayer
+if (IsButtonHeld(eventPlayer, Button.Melee))
+{
+    tutorialTextClosed = true;
+}
+
+void Tutorial()
+{
+    // Spacer
+    CreateHudText(tutorialVisible, Location: Location.Right, Text: ' \n\n\n\n\n\n\n', SortOrder: 0);
+    // Tutorial
+    CreateHudText(
+        tutorialVisible,
+        // Header: ' \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n                        ',
+        // Text: '                                   ',
+        Header: ' \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n                            ',
+        Text: '                            ',
+        Location: Location.Right,
+        SortOrder: 1
+    );
+    // Top spacer
+    CreateHudText(
+        tutorialVisible,
+        Subheader: ' ',
+        Location: Location.Top,
+        SortOrder: 4
+    );
+    // 'Turf War' text
+    CreateProgressBarHudText(
+        tutorialVisible,
+        100,
+        '★ Ƭurf War ★',
+        Location.Top,
+        5,
+        CustomColor(0,0,0,0),
+        Color.Orange
+    );
+    // Created by
+    CreateHudText(tutorialVisible, Location: Location.Top, Text: 'Created by Deltin       http://bit.ly/grandeurhammers', SortOrder: 6, TextColor: Color.Rose);
+    // Cap
+    CreateProgressBarHudText(tutorialVisible, 100, null, Location.Top, 7, CustomColor(0,0,0,0), Color.Orange);
+    // Main
+    CreateHudText(
+        tutorialVisible,
+        Text: <'<0>\n\n<1>\n',
+            '★ Each kill moves the line towards the enemy side.\n    Push them off the cliff to win.',
+            <'★ Press <0> to create a barrier. Each kill grants a barrier.', InputBindingString(Button.Interact)>>,
+        SortOrder: 8,
+        Location: Location.Top
+    );
+
+    // Gametype hud
+    if (gametype == 0)
+    {
+        // Main
+        CreateHudText(
+            tutorialVisible,
+            Text: 'The host player can switch the gamemode type in the settings.',
+            TextColor: Color.Green,
+            SortOrder: 9,
+            Location: Location.Top
+        );
+    }
+    else if (gametype == 1)
+    {
+        // Protect the president
+        CreateProgressBarHudText(
+            tutorialVisible,
+            100,
+            '★ Gametype: Protect the President ★',
+            Location.Top,
+            9,
+            CustomColor(0,0,0,0),
+            Color.Green
+        );
+        // Main
+        CreateHudText(
+            tutorialVisible,
+            Text: <' \n<0>\n\n<1>\n\n<2>\n                                  ',
+                <'★ Protect your friendly <0> and kill the enemy <0>!', HeroIconString(Hero.Ashe)>,
+                '★ Game ends when a president dies.',
+                <'★ Start with <0> extra barriers.', ptpBarrierStartCount>>,
+            SortOrder: 10,
+            Location: Location.Top
+        );
+    }
+
+    // Exit button
+    CreateHudText(
+        tutorialVisible,
+        Header: <'Press <0> to close', InputBindingString(Button.Melee)>,
+        HeaderColor: CustomColor(barrierColorFlash(186, 255), barrierColorFlash(45, 255), barrierColorFlash(127, 255), 255),
+        SortOrder: 11,
+        Location: Location.Top,
+        Reevaluation: HudTextRev.VisibleToSortOrderStringAndColor
+    );
+}

@@ -1,5 +1,6 @@
 import 'settings.lobby';
 import 'President.del';
+import 'Tutorial.del';
 
 globalvar define timer;
 globalvar define scoreDelta = 0;
@@ -27,6 +28,7 @@ define colorFlash: SineFromRadians(TotalTimeElapsed() * 1.4) * 255;
 define killPoints: inSuddenDeath && suddenDeathType == 0 ? suddenDeathScoreMultiplier : 1;
 Color barrierColor: CustomColor(barrierColorFlash(19), barrierColorFlash(191), barrierColorFlash(174), 255);
 define barrierColorFlash(define value): value + ((255-value) * barrierColorLerp);
+define barrierColorFlash(define from, define to): from + SineFromRadians(TotalTimeElapsed() * 1.4) * (to - from);
 
 rule: 'Init'
 {
@@ -40,9 +42,8 @@ rule: 'Init'
     // When scoreDelta > 0, the line is Team 1.
     CreateBeamEffect(AllPlayers(), BeamType.GoodBeam, Vector(-20, 0.1, arenaPosition), Vector(20, 0.1, arenaPosition), scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2, EffectRev.VisibleToPositionRadiusAndColor);
 
-    CreateHudText(AllPlayers(), Text: "Press interact to create a barrier.", Location: Location.Left, SortOrder: 0, TextColor: Color.Orange);
-    CreateHudText(AllPlayers(), Text: "Each kill moves the line towards the enemy side. Push them to the cliff to win.", Location: Location.Left, SortOrder: 1, TextColor: Color.Blue);
-    CreateHudText(HostPlayer(), Text: <"CAP <0>/<1>/<2>", ServerLoad(), ServerLoadAverage(), ServerLoadPeak()>, Location: Location.Top, SortOrder: -1, TextColor: Color.Green);
+    // Tutorial
+    Tutorial();
 
     // Timer
     CreateHudText(
@@ -153,7 +154,6 @@ if (IsUsingUltimate())
 rule: "Player: On Kill"
 Event.OnFinalBlow
 {
-    heroUpgradeCurrent++;
     numberOfBarriers++;
     barrierColorLerp = 1;
     StopChasingVariable(barrierColorLerp);

@@ -14,7 +14,6 @@ Event.OngoingPlayer
 if (gametype == 1)
 if (!IsTrueForAny(AllPlayers(TeamOf()), ArrayElement().isPresident))
 {
-    SmallMessage();
     isPresident = true;
 }
 
