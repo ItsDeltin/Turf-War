@@ -1,40 +1,75 @@
 import 'settings.lobby';
 
+globalvar define timer;
 globalvar define scoreDelta = 0;
 globalvar Barrier[] barriers = [];
 playervar define numberOfBarriers = 0;
 playervar define timeSinceAlive;
 playervar Barrier lookingAtBarrier;
-playervar define ultimateReady;
-globalvar Vector currentLeft = arenaLeft;
-globalvar Vector currentRight = arenaRight;
 
 define eventPlayer: EventPlayer();
-Vector arenaLeft: Vector(-20, 0.1, scoreDelta);
-Vector arenaRight: Vector(20, 0.1, scoreDelta);
+define victim: Victim();
+globalvar define arenaPosition = 0;
+globalvar define scoreToWin = WorkshopSettingInteger('Game', 'Score To Win', 15, 3, 30, 0);
+globalvar define timeUntilSuddenDeath = WorkshopSettingInteger('Sudden Death', 'Time until sudden death', 300, 0, 900, 0);
+globalvar define suddenDeathType = WorkshopSettingCombo('Sudden Death', 'Sudden death type', 0, ['Score multiplier', 'Deathmatch'], 1);
+globalvar define suddenDeathScoreMultiplier = WorkshopSettingInteger('Sudden Death', 'Overtime score multiplier', 3, 2, 10, 2);
+globalvar define inSuddenDeath = false;
+define timerText: <'<0>:<1>', RoundToInteger(timer / 60, Rounding.Down), timer % 60 < 10 ? <'0<0>', RoundToInteger(timer % 60, Rounding.Down)> : RoundToInteger(timer % 60, Rounding.Down)>;
+define colorFlash: SineFromRadians(TotalTimeElapsed() * 1.4) * 255;
+define killPoints: inSuddenDeath && suddenDeathType == 0 ? suddenDeathScoreMultiplier : 1;
 
 rule: 'Init'
 {
     DisableCompletion();
-    ChaseVariableAtRate(currentLeft, arenaLeft, 5, RateChaseReevaluation.DestinationAndRate);
-    ChaseVariableAtRate(currentRight, arenaRight, 5, RateChaseReevaluation.DestinationAndRate);
+    ChaseVariableAtRate(arenaPosition, scoreDelta * (20 / scoreToWin), 10, RateChaseReevaluation.DestinationAndRate);
+    ChaseVariableAtRate(timer, 0, 1, RateChaseReevaluation.None);
 
     // Create the boundary line.
-    CreateBeamEffect(
-        AllPlayers(),
-        BeamType.GoodBeam,
-        currentLeft,
-        currentRight,
-        // When scoreDelta < 0, the line is Team 2.
-        // When scoreDelta == 0, the line is white.
-        // When scoreDelta > 0, the line is Team 1.
-        scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2,
-        EffectRev.VisibleToPositionRadiusAndColor
-    );
+    // When scoreDelta < 0, the line is Team 2.
+    // When scoreDelta == 0, the line is white.
+    // When scoreDelta > 0, the line is Team 1.
+    CreateBeamEffect(AllPlayers(), BeamType.GoodBeam, Vector(-20, 0.1, arenaPosition), Vector(20, 0.1, arenaPosition), scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2, EffectRev.VisibleToPositionRadiusAndColor);
 
     CreateHudText(AllPlayers(), Text: "Press interact to create a barrier.", Location: Location.Left, SortOrder: 0, TextColor: Color.Orange);
     CreateHudText(AllPlayers(), Text: "Each kill moves the line towards the enemy side. Push them to the cliff to win.", Location: Location.Left, SortOrder: 1, TextColor: Color.Blue);
-    CreateHudText(HostPlayer(), Text: <"CAP <0>/<1>/<2>", ServerLoad(), ServerLoadAverage(), ServerLoadPeak()>, Location: Location.Top, SortOrder: 1, TextColor: Color.Green);
+    CreateHudText(HostPlayer(), Text: <"CAP <0>/<1>/<2>", ServerLoad(), ServerLoadAverage(), ServerLoadPeak()>, Location: Location.Top, SortOrder: 3, TextColor: Color.Green);
+
+    // Timer
+    CreateHudText(
+        HostPlayer(),
+        Text: inSuddenDeath ? ([<'x<0> score multiplier', suddenDeathScoreMultiplier>, 'Deathmatch: no more respawning'][suddenDeathType]) : timerText,
+        TextColor: inSuddenDeath ? CustomColor(255, colorFlash, colorFlash, 255) : Color.White,
+        SortOrder: 0,
+        Location: Location.Top,
+        Reevaluation: HudTextRev.VisibleToStringAndColor
+    );
+
+    // Progress bars
+    CreateProgressBarHudText(
+        AllPlayers(Team.Team1),
+        100 * (0.5 + ((scoreDelta / scoreToWin) / 2)),
+        Max(0, scoreToWin - scoreDelta),
+        Location.Top,
+        1,
+        scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2,
+        scoreDelta >= scoreToWin ? Color.Green : scoreDelta <= -scoreToWin ? Color.Red : Color.White,
+        ProgressBarEvaluation.VisibleToValuesAndColor,
+        Spectators.VisibleNever
+    );
+    CreateProgressBarHudText(
+        AllPlayers(Team.Team2),
+        100 * (0.5 + ((-scoreDelta / scoreToWin) / 2)),
+        Max(0, scoreToWin + scoreDelta),
+        Location.Top,
+        1,
+        scoreDelta == 0 ? Color.White : scoreDelta > 0 ? Team.Team1 : Team.Team2,
+        scoreDelta <= -scoreToWin ? Color.Green : scoreDelta >= scoreToWin ? Color.Red : Color.White,
+        ProgressBarEvaluation.VisibleToValuesAndColor,
+        Spectators.VisibleNever
+    );
+
+    DeathmatchTimer();
 }
 
 rule: "Debug: Create dummy bot"
@@ -47,15 +82,15 @@ if (IsButtonHeld(HostPlayer(), Button.Melee))
 rule: "Player: Setup"
 Event.OngoingPlayer
 {
+    DisableGameModeHud(eventPlayer);
+    DisableRespawning(eventPlayer);
     CreateHudText(eventPlayer, IconString(Icon.Halo), "Number of barriers", numberOfBarriers, Location.Top, 2, Color.Blue, Color.SkyBlue, Color.Orange);
-    CreateHudText(eventPlayer, IsUsingUltimate());
-    SetUltimateCharge(eventPlayer, 100);
 
     StartDamageModification(
-        FilteredArray(AllPlayers(OppositeTeamOf(TeamOf())), lookingAtBarrier != null && PositionOf(ArrayElement()).DistanceTo(eventPlayer) > PositionOf(eventPlayer).DistanceTo(lookingAtBarrier.Position)),
+        FilteredArray(AllPlayers(OppositeTeamOf(TeamOf())), IsUsingUltimate() || (lookingAtBarrier != null && lookingAtBarrier.IsBlockedByBarrier(eventPlayer, ArrayElement()))),
         eventPlayer,
-        0,
-        DamageModificationRev.ReceiversAndDamagers
+        IsUsingUltimate() ? 0.1 : 0,
+        DamageModificationRev.ReceiversDamagersAndDamagePercent
     );
 }
 
@@ -81,42 +116,26 @@ Event.OngoingPlayer
 if (IsFiringSecondary())
 if (lookingAtBarrier != null)
 {
-    while (Ammo(eventPlayer, 0) > 0)
+    while (Ammo(eventPlayer, 0) > 0 && lookingAtBarrier != null)
     {
         lookingAtBarrier.Damage(Min(15, Max(5, 25 - EyePosition().DistanceTo(lookingAtBarrier.Position) * 2)), eventPlayer);
         Wait(0.11);
     }
 }
 
-rule: "Player: Ultimate start"
-Event.OngoingPlayer
+rule: "Player: ultimate"
+Event.OnDamageDealt
 if (IsUsingUltimate())
 {
-    // Disable primary fire, we will handle it on our own.
-    DisallowButton(eventPlayer, Button.PrimaryFire);
-    ultimateReady = true;
-}
-
-rule: "Player: Ultimate cancel"
-Event.OngoingPlayer
-if (ultimateReady)
-if (IsButtonHeld(eventPlayer, Button.SecondaryFire))
-{
-    CleaupUltimate();
-}
-
-rule: "Player: Ultimate fire"
-Event.OngoingPlayer
-if (ultimateReady)
-if (IsButtonHeld(eventPlayer, Button.PrimaryFire))
-{
-    ultimateReady = true;
-}
-
-void CleaupUltimate() playervar "Player: Cleanup ultimate"
-{
-    AllowButton(eventPlayer, Button.PrimaryFire);
-    ultimateReady = false;
+    Barrier barrier = barriers
+        .SortedArray((Barrier barrier) => barrier.Position.DistanceTo(eventPlayer))
+        .FilteredArray((Barrier barrier) => barrier.IsBlockedByBarrier(eventPlayer, victim) && barrier.DoesIntersect(eventPlayer, DirectionTowards(EyePosition(eventPlayer), EyePosition(victim))))
+        .First;
+    
+    if (barrier == null)
+        Kill(victim, EventPlayer());
+    else
+        barrier.Damage(60, null);
 }
 
 // ** Score **
@@ -131,7 +150,7 @@ Event.OnDeath
 Team.Team1
 if (IsGameInProgress())
 {
-    scoreDelta--;
+    scoreDelta -= killPoints;
     UpdateScore();
 }
 
@@ -140,7 +159,7 @@ Event.OnDeath
 Team.Team2
 if (IsGameInProgress())
 {
-    scoreDelta++;
+    scoreDelta += killPoints;
     UpdateScore();
 }
 
@@ -158,21 +177,42 @@ void UpdateScore()
     }
 }
 
-rule: "Win"
-if (AbsoluteValue(scoreDelta) >= 20)
+rule: "Win: Score"
+if (AbsoluteValue(scoreDelta) >= scoreToWin)
 {
-    Team winningTeam = scoreDelta > 0 ? Team.Team1 : Team.Team2;
-    Team losingTeam = OppositeTeamOf(winningTeam);
+    Win(scoreDelta > 0 ? Team.Team1 : Team.Team2);
+}
 
-    BigMessage(AllPlayers(winningTeam), "You win!");
-    BigMessage(AllPlayers(losingTeam), "You lose!");
+rule: "Win: Deathmatch Team 1"
+if (inSuddenDeath)
+if (suddenDeathType == 1)
+if (NumberOfLivingPlayers(Team.Team2) == 0)
+{
+    Win(Team.Team1);
+}
+
+rule: "Win: Deathmatch Team 2"
+if (inSuddenDeath)
+if (suddenDeathType == 1)
+if (NumberOfLivingPlayers(Team.Team1) == 0)
+{
+    Win(Team.Team2);
+}
+
+void Win(Team winner) 'Game: reset'
+{
+    BigMessage(AllPlayers(winner), "You win!");
+    BigMessage(AllPlayers(OppositeTeamOf(winner)), "You lose!");
+
+    Wait(5);
 
     // Reset the game.
+    DeathmatchTimer();
     scoreDelta = 0;
-    currentLeft = arenaLeft;
-    currentRight = arenaRight;
+    arenaPosition = 0;
     SetTeamScore(Team.Team1, 0);
     SetTeamScore(Team.Team2, 0);
+    inSuddenDeath = false;
 
     while (CountOf(barriers) > 0)
         barriers[0].Destroy();
@@ -185,6 +225,25 @@ if (AbsoluteValue(scoreDelta) >= 20)
     }
 }
 
+void DeathmatchTimer() globalvar 'Sudden death: timer'
+{
+    timer = timeUntilSuddenDeath;
+}
+
+rule: 'Sudden death: begin'
+if (timer <= 0)
+{
+    inSuddenDeath = true;
+
+    BigMessage(AllPlayers(), 'Sudden death!');
+    Wait(1);
+
+    if (suddenDeathType == 0)
+        SmallMessage(AllPlayers(), <'Kills are worth x<0> points', suddenDeathScoreMultiplier>);
+    else
+        SmallMessage(AllPlayers(), 'Deathmatch! No more respawning');
+}
+
 // ** Respawning **
 rule: "Player Setup Alive"
 Event.OngoingPlayer
@@ -194,9 +253,18 @@ if (HasSpawned())
     RespawnPlayer(eventPlayer);
 }
 
+rule: "Respawn"
+Event.OngoingPlayer
+if (IsDead())
+if (!inSuddenDeath || suddenDeathType != 1)
+{
+    Wait(2, WaitBehavior.AbortWhenFalse);
+    Respawn(eventPlayer);
+}
+
 void RespawnPlayer(ref define player)
 {
-    Teleport(player, Vector(RandomReal(-19, 20), 0, Max(-19, Min(19, scoreDelta - (TeamOf(player) == Team.Team1 ? 10 : -10)))));
+    Teleport(player, Vector(RandomReal(-19, 20), 0, Max(-19, Min(19, scoreDelta - (TeamOf(player) == Team.Team1 ? 20 : -20)))));
     player.timeSinceAlive = TotalTimeElapsed();
 }
 
@@ -218,7 +286,7 @@ class Barrier
     public define health = barrierHealth;
     public define effectID;
     public define healthEffect;
-    static define barrierSize: 2.2;
+    static define barrierSize: 1.8;
     static define barrierHealth: 60;
 
     public Batter(ref Vector pos, ref Team team)
@@ -257,25 +325,23 @@ class Barrier
     {
         DestroyEffect(effectID);
         DestroyEffect(healthEffect);
-        ModifyVariable(root.barriers, Operation.RemoveFromArrayByValue, this);
-        FilteredArray(AllPlayers(), ArrayElement().lookingAtBarrier == this).lookingAtBarrier = null;
-        delete this;
+        Barrier t = this;
+        ModifyVariable(root.barriers, Operation.RemoveFromArrayByValue, t);
+        FilteredArray(AllPlayers(), ArrayElement().lookingAtBarrier == t).lookingAtBarrier = null;
+        delete t;
     }
 
-    public define DoesIntersect(define player):
-        DoesLineIntersectSphere(
-            EyePosition(player),
-            FacingDirectionOf(player),
-            Position,
-            barrierSize
-        );
+    public define DoesIntersect(define player): DoesIntersect(player, FacingDirectionOf(player));
+    public define DoesIntersect(define player, Vector direction): DoesLineIntersectSphere(EyePosition(player), direction, Position, barrierSize);
+    public define IsBlockedByBarrier(define player, define target): PositionOf(target).DistanceTo(player) > PositionOf(player).DistanceTo(Position);
 }
 
 // Boundary
 rule: "Team 1: Wrong side"
 Event.OngoingPlayer
 Team.Team1
-if (PositionOf(EventPlayer()).Z > scoreDelta - 0.25)
+if (PositionOf(EventPlayer()).Z > arenaPosition)
+if (TotalTimeElapsed() - timeSinceAlive > 1)
 {
     ApplyImpulse(EventPlayer(), Vector(0, 0.1, -1), 7, Relative.ToWorld, ContraryMotion.Cancel);
     MinWait();
@@ -285,7 +351,8 @@ if (PositionOf(EventPlayer()).Z > scoreDelta - 0.25)
 rule: "Team 2: Wrong side"
 Event.OngoingPlayer
 Team.Team2
-if (ZOf(PositionOf(EventPlayer())) < scoreDelta + 0.25)
+if (ZOf(PositionOf(EventPlayer())) < arenaPosition)
+if (TotalTimeElapsed() - timeSinceAlive > 1)
 {
     ApplyImpulse(EventPlayer(), Vector(0, 0.1, 1), 7, Relative.ToWorld, ContraryMotion.Cancel);
     MinWait();
