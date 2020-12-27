@@ -1,6 +1,7 @@
 import 'Turf War.del';
 
 playervar define isPresident = null;
+playervar define presidentHeal;
 
 rule: 'President: join'
 Event.OngoingPlayer
@@ -48,4 +49,14 @@ if (gametype == 1)
 if (HasSpawned())
 {
     ForcePlayerHero(eventPlayer, Hero.Mccree);
+}
+
+rule: 'President: Heal'
+Event.OnDamageTaken
+if (isPresident)
+{
+    StopHealOverTime(presidentHeal);
+    Wait(10, WaitBehavior.RestartWhenTrue);
+    StartHealOverTime(eventPlayer, eventPlayer, 9999, 40);
+    presidentHeal = LastHealOverTime();
 }

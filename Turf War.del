@@ -22,13 +22,15 @@ globalvar define suddenDeathType = WorkshopSettingCombo('Sudden Death', 'Sudden 
 globalvar define suddenDeathScoreMultiplier = WorkshopSettingInteger('Sudden Death', 'Overtime score multiplier', 3, 2, 10, 2);
 globalvar define respawnTime = WorkshopSettingInteger('Player', 'Respawn time', 4, 0, 10, 0);
 globalvar define primaryBarrierDamage = WorkshopSettingInteger('Player', 'Primary fire barrier damage', 10, 0, 60, 1);
+globalvar define presidentBarrierDamage = WorkshopSettingInteger('Player', 'President scope barrier damage', 20, 0, 60, 2);
 globalvar define inSuddenDeath = false;
 define timerText: <'<0>:<1>', RoundToInteger(timer / 60, Rounding.Down), timer % 60 < 10 ? <'0<0>', RoundToInteger(timer % 60, Rounding.Down)> : RoundToInteger(timer % 60, Rounding.Down)>;
 define colorFlash: SineFromRadians(TotalTimeElapsed() * 1.4) * 255;
-define killPoints: inSuddenDeath && suddenDeathType == 0 ? suddenDeathScoreMultiplier : 1;
+define killPoints: inSuddenDeath ? suddenDeathScoreMultiplier : 1;
 Color barrierColor: CustomColor(barrierColorFlash(19), barrierColorFlash(191), barrierColorFlash(174), 255);
 define barrierColorFlash(define value): value + ((255-value) * barrierColorLerp);
 define barrierColorFlash(define from, define to): from + SineFromRadians(TotalTimeElapsed() * 1.4) * (to - from);
+define isTeamDead(Team team): IsTrueForAll(AllPlayers(team), IsDead(ArrayElement()) || (hardcoreEnabled && ArrayElement().knockedOut));
 
 rule: 'Init'
 {
@@ -48,7 +50,7 @@ rule: 'Init'
     // Timer
     CreateHudText(
         HostPlayer(),
-        Text: inSuddenDeath ? ([<'x<0> score multiplier', suddenDeathScoreMultiplier>, 'Deathmatch: no more respawning'][suddenDeathType]) : timerText,
+        Text: inSuddenDeath ? (<'x<0> score multiplier<1>', suddenDeathScoreMultiplier, suddenDeathRespawn ? '' : ' - No more respawning'>) : timerText,
         TextColor: inSuddenDeath ? CustomColor(255, colorFlash, colorFlash, 255) : Color.White,
         SortOrder: 0,
         Location: Location.Top,
@@ -119,7 +121,8 @@ Event.OngoingPlayer
 if (IsFiringPrimary())
 if (lookingAtBarrier != null)
 {
-    lookingAtBarrier.Damage(primaryBarrierDamage, eventPlayer);
+    define damage = isPresident && IsButtonHeld(eventPlayer, Button.SecondaryFire) ? presidentBarrierDamage : primaryBarrierDamage;
+    lookingAtBarrier.Damage(damage, eventPlayer);
 }
 
 rule: "Player: Damage barrier secondary fire"
@@ -235,8 +238,9 @@ void Win(Team winner) 'Game: reset'
     foreach (define player in AllPlayers())
     {
         player.numberOfBarriers = 0;
-        RespawnPlayer(player);
         Respawn(player);
+        RespawnPlayer(player);
+        SetUltimateCharge(player, 0);
     }
     InitializeGame();
 }
@@ -289,6 +293,7 @@ if (!inSuddenDeath || suddenDeathType != 1)
 void RespawnPlayer(ref define player)
 {
     Teleport(player, Vector(RandomReal(-19, 20), 0, Max(-19, Min(19, scoreDelta - (TeamOf(player) == Team.Team1 ? 20 : -20)))));
+    SetFacing(player, TeamOf(player) == Team.Team1 ? Forward() : Backward());
     player.timeSinceAlive = TotalTimeElapsed();
 }
 
